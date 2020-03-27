@@ -1,5 +1,5 @@
 {
-    "python.pythonPath": "/opt/anaconda3/envs/deep_learning/bin/python",
+    "python.pythonPath": "/home/bishwarup/anaconda3/envs/covid-simulation/bin/python",
     "workbench.colorCustomizations": {
         "activityBar.background": "#3399ff",
         "activityBar.activeBackground": "#3399ff",
@@ -16,5 +16,6 @@
         "statusBarItem.hoverBackground": "#3399ff",
         "statusBar.foreground": "#e7e7e7"
     },
-    "peacock.color": "#007fff"
+    "peacock.color": "#007fff",
+    "python.formatting.provider": "black"
 }

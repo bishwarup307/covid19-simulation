@@ -1,13 +1,25 @@
+"""
+__author__: bishwarup
+created: Tuesday, 24th March 2020 11:29:06 pm
+"""
+
 from abc import ABC, abstractmethod, abstractproperty
 import numpy as np
 import random
+import string
 import sys
-import cv2
+import json
+import logging
+import webbrowser
 import operator
 import matplotlib.pyplot as plt
 from collections import defaultdict
 import itertools
 import names
+from multiprocessing import Process
+from utils import calc_area, distance, spawn
+from redis import Redis
+from app import app
 
 
 def locate(coords, noise_level=0, center=False):
@@ -40,38 +52,38 @@ def locate(coords, noise_level=0, center=False):
 
 
 # we assume Euclidean distance for simplitcity
-def distance(x1, x2):
-    return np.sqrt((x1[0] - x2[0]) ** 2 + (x1[1] - x2[1]) ** 2)
+# def distance(x1, x2):
+#     return np.sqrt((x1[0] - x2[0]) ** 2 + (x1[1] - x2[1]) ** 2)
 
 
-def spawn(shape, grid, fill=1, start=None):
-    done = False
-    found = None
-    while not done:
-        if start is not None:
-            start_x, start_y = start
-        else:
-            start_x, start_y = (
-                np.random.randint(0, grid.shape[0] - shape[0]),
-                np.random.randint(0, grid.shape[1] - shape[1]),
-            )
-        # print(start_x, start_y)
-        for i in range(start_x, grid.shape[0] - shape[0]):
-            for j in range(start_y, grid.shape[1] - shape[1]):
-                if grid[i, j] == 1:
-                    continue
-                elif np.sum(grid[i : (i + shape[0]), j : (j + shape[1])]) == 0:
-                    done = True
-                    found = i, j
-                    grid[i : (i + shape[0]), j : (j + shape[1])] = fill
-                    break
-                else:
-                    continue
-            if done:
-                break
-    x_max, y_max = found[0] + shape[0], found[1] + shape[1]
-    bbox = found, (x_max, y_max)
-    return bbox, grid
+# def spawn(shape, grid, fill=1, start=None):
+#     done = False
+#     found = None
+#     while not done:
+#         if start is not None:
+#             start_x, start_y = start
+#         else:
+#             start_x, start_y = (
+#                 np.random.randint(0, grid.shape[0] - shape[0]),
+#                 np.random.randint(0, grid.shape[1] - shape[1]),
+#             )
+#         # print(start_x, start_y)
+#         for i in range(start_x, grid.shape[0] - shape[0]):
+#             for j in range(start_y, grid.shape[1] - shape[1]):
+#                 if grid[i, j] == 1:
+#                     continue
+#                 elif np.sum(grid[i: (i + shape[0]), j: (j + shape[1])]) == 0:
+#                     done = True
+#                     found = i, j
+#                     grid[i: (i + shape[0]), j: (j + shape[1])] = fill
+#                     break
+#                 else:
+#                     continue
+#             if done:
+#                 break
+#     x_max, y_max = found[0] + shape[0], found[1] + shape[1]
+#     bbox = found, (x_max, y_max)
+#     return bbox, grid
 
 
 class Structure(ABC):
@@ -213,35 +225,131 @@ class Apartment(Structure):
         return self._fill
 
 
+def get_logger(file=None, level=logging.INFO):
+    logger = logging.getLogger(__name__)
+    handler = logging.FileHandler(file) if file is not None else logging.StreamHandler()
+    formatter = logging.Formatter(
+        "%(asctime)s:%(levelname)s:%(name)s:%(processName)s:%(message)s"
+    )
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    return logger
+
+
 class City:
-    def __init__(self, grid_size, initial_pop_size, **kwargs):
+    KEY = "city19"
+    structures = [
+        "office",
+        "school",
+        "hospital",
+        "public_place",
+        "small_house",
+        "apartment",
+    ]
+    COLORS = {
+        "hospital": (173, 50, 100),
+        "school": (100, 200, 189),
+        "office": (254, 166, 0),
+        "public_place": (10, 56, 239),
+        "apartment": (128, 19, 128),
+        "small_house": (182, 129, 207),
+        "healthy": (76, 205, 67),
+        "infected": (175, 46, 34),
+    }
+
+    def __init__(self, grid_size, **kwargs):
         self.grid_size = grid_size
         self.grid = np.zeros((grid_size, grid_size), dtype=np.uint8)
         self.rgb_grid = np.zeros((grid_size, grid_size, 3), dtype=np.uint8)
-        self.initial_pop = initial_pop_size
-        self.n_office = kwargs.get("office", random.randint(10, 100))
-        self.n_school = kwargs.get("school", random.randint(5, 25))
-        self.n_hospital = kwargs.get("hospital", random.randint(5, 20))
-        self.n_public = kwargs.get("public_places", random.randint(10, 20))
-        self.n_small_house = kwargs.get("smallhouse", self.initial_pop * 0.7 / 5)
-        self.n_apartments = kwargs.get("apartment", self.initial_pop * 0.3 / 20)
+
+        self.spawn_random = kwargs.get("spawn_random", False)
+        if self.spawn_random:
+            self.n_office = kwargs.get("office", random.randint(10, 100))
+            self.n_school = kwargs.get("school", random.randint(5, 25))
+            self.n_hospital = kwargs.get("hospital", random.randint(5, 20))
+            self.n_public = kwargs.get("public_place", random.randint(10, 20))
+            self.n_small_house = kwargs.get("small_house", self.initial_pop * 0.7 / 5)
+            self.n_apartments = kwargs.get("apartment", self.initial_pop * 0.3 / 20)
+        else:
+            self.n_office = kwargs.get("office", 0)
+            self.n_school = kwargs.get("school", 0)
+            self.n_hospital = kwargs.get("hospital", 0)
+            self.n_public = kwargs.get("public_place", 0)
+            self.n_small_house = kwargs.get("small_house", 0)
+            self.n_apartments = kwargs.get("apartment", 0)
+
+        self.stream = dict()
+        self.streaming = False
+        stream = kwargs.get("stream", None)
+        if stream:
+            self.stream["cache"] = stream.get("cache", "redis").lower()
+            self.stream["port"] = stream.get("port", 6379)
+            self.stream["db"] = stream.get("db", "db0").lower()
+
+        if len(self.stream) > 0:
+            if not self.stream["cache"] == "redis":
+                self.logger.error(
+                    "only `redis` is supported as streaming backend for now."
+                )
+            else:
+                self.streaming = True
+                self.server = Redis()
+                if self.server.get(City.KEY) is not None:
+                    self.server.delete(City.KEY)
+                self.listener = self.server.pubsub(ignore_subscribe_messages=True)
+                self.latency = 1
+                self.app = app
+
+        log = kwargs.get("log", True)
+        if log is not None:
+            if isinstance(log, str):
+                self.logger = get_logger(log)
+            else:
+                self.logger = get_logger()
+
         self._locs = defaultdict(lambda: defaultdict(tuple))
         self._occupancy = dict()
+        self._gen_ids = []
+        # City._suppress_flask_server_out()
+        if self.streaming:
+            self.process = Process(target=self.app.run)
+            self.process.start()
+            webbrowser.open_new_tab("http://127.0.0.1:5000")
 
     @property
     def city_map(self):
         return self._locs
 
-    def _update_locs(self, loc):
-        """
-        Arguments:
-            loc {tuple} -- (`loc_type`, `loc_id`, `loc_coords`)
-        """
-        self._locs[loc[0]].update({loc[1]: tuple(itertools.chain(*loc[2]))})
-
     @staticmethod
     def _get_area(coord):
-        return (coord[2] - coord[0]) * (coord[3] - coord[1])
+        return calc_area(coord)
+        # return (coord[2] - coord[0]) * (coord[3] - coord[1])
+
+    @staticmethod
+    def _suppress_flask_server_out(level=logging.ERROR):
+        lgr = logging.getLogger("werkzeug")
+        lgr.setLevel(level)
+
+    def _generate_id(self, size=6, chars=string.ascii_lowercase + string.digits):
+        id_ = "".join(random.choice(chars) for _ in range(size))
+        if id_ not in self._gen_ids:
+            return id_
+        return self._generate_id()
+
+    def _publish(self, content):
+        r = Redis()
+        id_ = self._generate_id(8)
+        r.append(City.KEY, "\n" + json.dumps(content))
+
+    def _check_if_buildings(self):
+        return (self.spawn_random) or (
+            self.n_office
+            + self.n_school
+            + self.n_hospital
+            + self.n_public
+            + self.n_apartments
+            + self.n_small_house
+        ) > 0
 
     def _get_open_coords(self):
         flat_pos = np.arange(self.grid_size * self.grid_size)[self.grid.flatten() == 0]
@@ -249,63 +357,114 @@ class City:
         ys = flat_pos % self.grid_size
         return list(zip(xs, ys))
 
-    def _spawn_buildings(self,):
+    def _update_locs(self, loc):
+        """
+        Arguments:
+            loc {tuple} -- (`loc_type`, `loc_id`, `loc_coords`)
+        """
+        self._locs[loc[0]].update({loc[1]: loc[2]})
 
-        for i in range(self.n_public):
-            public_place = PublicPlaces()
-            loc, self.grid = public_place.spawn(self.grid)
-            self.rgb_grid[self.grid == public_place.fill] = public_place.color
-            self._update_locs(("PublicPlace", f"pbl_{i}", loc))
+    def spawn(self, building_type, **kwargs):
+        building_type = building_type.lower()
+        assert (
+            building_type in self.structures
+        ), f"`building_type` must be one of {', '.join(self.structures)}"
+        if building_type == "office":
+            struct = Office()
+        elif building_type == "public_place":
+            struct = PublicPlaces()
+        elif building_type == "hospital":
+            struct = Hospital()
+        elif building_type == "school":
+            struct = School()
+        elif building_type == "apartment":
+            struct = Apartment()
+        elif building_type == "small_house":
+            struct = SmallHouse()
+        else:
+            raise NotImplementedError
 
-        for i in range(self.n_office):
-            office = Office()
-            loc, self.grid = office.spawn(self.grid)
-            self.rgb_grid[self.grid == office.fill] = office.color
-            self._update_locs(("Office", f"office_{i}", loc))
-
-        for i in range(self.n_school):
-            school = School()
-            loc, self.grid = school.spawn(self.grid)
-            self.rgb_grid[self.grid == school.fill] = school.color
-            self._update_locs(("School", f"school_{i}", loc))
-
-        for i in range(self.n_hospital):
-            hospital = Hospital()
-            loc, self.grid = hospital.spawn(self.grid)
-            self.rgb_grid[self.grid == hospital.fill] = hospital.color
-            self._update_locs(("Hospital", f"hospital_{i}", loc))
-
-        for i in range(self.n_apartments):
-            apt = Apartment()
-            loc, self.grid = apt.spawn(self.grid)
-            self.rgb_grid[self.grid == apt.fill] = apt.color
-            self._update_locs(("Apartment", f"apt_{i}", loc))
-
-        for i in range(self.n_small_house):
-            smh = SmallHouse()
-            loc, self.grid = smh.spawn(self.grid)
-            self.rgb_grid[self.grid == smh.fill] = smh.color
-            self._update_locs(("SmallHouse", f"smh_{i}", loc))
-
-        self._occupancy["Apartment"] = dict(
-            zip(
-                list(self.city_map["Apartment"].keys()),
-                [City._get_area(x) for x in list(self.city_map["Apartment"].values())],
-            )
+        loc, self.grid = struct.spawn(self.grid)
+        self._update_locs(
+            (building_type, f"{building_type}_{self._generate_id()}", loc)
         )
-        self._occupancy["SmallHouse"] = dict(
-            zip(
-                list(self.city_map["SmallHouse"].keys()),
-                [City._get_area(x) for x in list(self.city_map["SmallHouse"].values())],
+        if self.streaming:
+            box = (loc[0], loc[1], loc[2] - loc[0], loc[3] - loc[1])
+            self._publish(
+                {"shape": box, "color": City.COLORS[building_type], "id": "struct"}
             )
-        )
+
+    def spawn_buildings(self):
+        if self._check_if_buildings():
+
+            for i in range(self.n_public):
+                public_place = PublicPlaces()
+                loc, self.grid = public_place.spawn(self.grid)
+                self.rgb_grid[self.grid == public_place.fill] = public_place.color
+                self._update_locs(("public_place", f"pbl_{i}", loc))
+
+            for i in range(self.n_office):
+                office = Office()
+                loc, self.grid = office.spawn(self.grid)
+                self.rgb_grid[self.grid == office.fill] = office.color
+                self._update_locs(("office", f"office_{i}", loc))
+
+            for i in range(self.n_school):
+                school = School()
+                loc, self.grid = school.spawn(self.grid)
+                self.rgb_grid[self.grid == school.fill] = school.color
+                self._update_locs(("school", f"school_{i}", loc))
+
+            for i in range(self.n_hospital):
+                hospital = Hospital()
+                loc, self.grid = hospital.spawn(self.grid)
+                self.rgb_grid[self.grid == hospital.fill] = hospital.color
+                self._update_locs(("hospital", f"hospital_{i}", loc))
+
+            for i in range(self.n_apartments):
+                apt = Apartment()
+                loc, self.grid = apt.spawn(self.grid)
+                self.rgb_grid[self.grid == apt.fill] = apt.color
+                self._update_locs(("apartment", f"apartment_{i}", loc))
+
+            for i in range(self.n_small_house):
+                smh = SmallHouse()
+                loc, self.grid = smh.spawn(self.grid)
+                self.rgb_grid[self.grid == smh.fill] = smh.color
+                self._update_locs(("smallhouse", f"smallhouse_{i}", loc))
+
+            self._occupancy["Apartment"] = dict(
+                zip(
+                    list(self.city_map["Apartment"].keys()),
+                    [
+                        City._get_area(x)
+                        for x in list(self.city_map["Apartment"].values())
+                    ],
+                )
+            )
+            self._occupancy["SmallHouse"] = dict(
+                zip(
+                    list(self.city_map["SmallHouse"].keys()),
+                    [
+                        City._get_area(x)
+                        for x in list(self.city_map["SmallHouse"].values())
+                    ],
+                )
+            )
+
+    def destroy(self):
+        try:
+            self.process.terminate()
+            self.process.join()
+        except Exception as exc:
+            raise exc
 
     def draw_city(self, figsize=(8, 8)):
         plt.figure(figsize=figsize)
         plt.imshow(self.rgb_grid)
         plt.show()
 
-    def spawn_person(self):
+    def spawn_person(self, id_):
         occupation = np.random.choice(
             ["DeskJob", "FieldJob", "Student", "Retired"], p=[0.15, 0.5, 0.25, 0.1]
         )
@@ -365,6 +524,7 @@ class City:
             raise NotImplementedError
 
         person = Person(
+            id_,
             work,
             home,
             work_type=occupation,
@@ -379,15 +539,12 @@ class Occupation(ABC):
     @abstractproperty
     # def travel(self):
     #     pass
-
     # @abstractproperty
     # def meet(self):
     #     pass
-
     # @abstractproperty
     # def working_hours(self):
     #     pass
-
     @abstractmethod
     def step(self):
         pass
@@ -467,13 +624,14 @@ class FieldJob(Occupation):
 
 
 class Person:
-    def __init__(self, work, home, **kwargs):
+    def __init__(self, id_, work, home, **kwargs):
         # self.age = int(np.clip(5 * np.random.randn() + 30, 0, 90))
         # self._time = 0
         # self.occupation = np.random.choice(['DeskJob', 'FieldJob', 'Student'], p = [0.15, 0.5, 0.35])
         # self.is_compromised = np.random.choice([0, 1], p=[0.2, 0.8])
         # self.immunity = np.clip(np.random.randn(1) + 1, 0, 1)
         # self.precaution = np.random.randn()
+        self.id_ = id_
         self.home = home
         self.work = work
         self.name = names.get_first_name()
