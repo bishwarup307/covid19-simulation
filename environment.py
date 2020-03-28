@@ -351,6 +351,23 @@ class City:
             + self.n_small_house
         ) > 0
 
+    def _update_occupancy(self):
+        self._occupancy["apartment"] = dict(
+            zip(
+                list(self.city_map["apartment"].keys()),
+                [City._get_area(x) for x in list(self.city_map["apartment"].values())],
+            )
+        )
+        self._occupancy["small_house"] = dict(
+            zip(
+                list(self.city_map["small_house"].keys()),
+                [
+                    City._get_area(x)
+                    for x in list(self.city_map["small_house"].values())
+                ],
+            )
+        )
+
     def _get_open_coords(self):
         flat_pos = np.arange(self.grid_size * self.grid_size)[self.grid.flatten() == 0]
         xs = flat_pos // self.grid_size
@@ -388,6 +405,9 @@ class City:
         self._update_locs(
             (building_type, f"{building_type}_{self._generate_id()}", loc)
         )
+
+        self._update_occupancy()
+
         if self.streaming:
             box = (loc[0], loc[1], loc[2] - loc[0], loc[3] - loc[1])
             self._publish(
@@ -431,26 +451,9 @@ class City:
                 smh = SmallHouse()
                 loc, self.grid = smh.spawn(self.grid)
                 self.rgb_grid[self.grid == smh.fill] = smh.color
-                self._update_locs(("smallhouse", f"smallhouse_{i}", loc))
+                self._update_locs(("small_house", f"small_house{i}", loc))
 
-            self._occupancy["Apartment"] = dict(
-                zip(
-                    list(self.city_map["Apartment"].keys()),
-                    [
-                        City._get_area(x)
-                        for x in list(self.city_map["Apartment"].values())
-                    ],
-                )
-            )
-            self._occupancy["SmallHouse"] = dict(
-                zip(
-                    list(self.city_map["SmallHouse"].keys()),
-                    [
-                        City._get_area(x)
-                        for x in list(self.city_map["SmallHouse"].values())
-                    ],
-                )
-            )
+            self._update_occupancy()
 
     def destroy(self):
         try:
@@ -470,13 +473,13 @@ class City:
         )
 
         if occupation == "DeskJob":
-            home_type = np.random.choice(["Apartment", "SmallHouse"], p=(0.8, 0.2))
+            home_type = np.random.choice(["apartment", "small_house"], p=(0.8, 0.2))
         elif occupation == "Student":
-            home_type = np.random.choice(["Apartment", "SmallHouse"], p=(0.5, 0.5))
+            home_type = np.random.choice(["apartment", "small_house"], p=(0.5, 0.5))
         elif occupation == "FieldJob":
-            home_type = np.random.choice(["Apartment", "SmallHouse"], p=(0.3, 0.7))
+            home_type = np.random.choice(["apartment", "small_house"], p=(0.3, 0.7))
         elif occupation == "Retired":
-            home_type = random.choice(["Apartment", "SmallHouse"])
+            home_type = random.choice(["apartment", "small_house"])
         else:
             raise NotImplementedError
 
@@ -495,23 +498,23 @@ class City:
         # )
         # home = "apt_" + str(home) if home_type == "Apartment" else "smh_" + str(home)
         home = (
-            locate(self.city_map["Apartment"][home], center=True)
-            if home_type == "Apartment"
-            else locate(self.city_map["SmallHouse"][home], center=True)
+            locate(self.city_map["apartment"][home], center=True)
+            if home_type == "apartment"
+            else locate(self.city_map["small_house"][home], center=True)
         )
 
         if occupation == "DeskJob":
-            offices = self.city_map["Office"]
+            offices = self.city_map["office"]
             work = "office_" + str(
                 np.argmin([City._get_area(x) for x in list(offices.values())])
             )
-            work = [locate(self.city_map["Office"][work])]
+            work = [locate(self.city_map["office"][work])]
         elif occupation == "Student":
-            schools = self.city_map["School"]
+            schools = self.city_map["school"]
             work = "school_" + str(
                 np.argmin([City._get_area(x) for x in list(schools.values())])
             )
-            work = [locate(self.city_map["School"][work])]
+            work = [locate(self.city_map["school"][work])]
         elif occupation == "FieldJob":
             n_work = random.choice(np.arange(5, 10))
             work = []
@@ -706,11 +709,11 @@ class Person:
                         pbl = np.argmin(
                             [
                                 distance(self.home, x[:2])
-                                for x in list(self.city_map["PublicPlace"].values())
+                                for x in list(self.city_map["public_place"].values())
                             ]
                         )
                         self.pos = locate(
-                            self.city_map["PublicPlace"]["pbl_" + str(pbl)],
+                            self.city_map["public_place"]["pbl_" + str(pbl)],
                             noise_level=10,
                         )
                         self.freeze(3)
@@ -728,8 +731,10 @@ class Person:
                     self.freeze(8)
                 elif time >= 17:
                     if random.random() <= 0.5:
-                        visit = random.choice(list(self.city_map["PublicPlace"].keys()))
-                        self.pos = locate(self.city_map["PublicPlace"][visit])
+                        visit = random.choice(
+                            list(self.city_map["public_place"].keys())
+                        )
+                        self.pos = locate(self.city_map["public_place"][visit])
                         self.freeze(3)
                     else:
                         self.pos = self.home
@@ -762,8 +767,10 @@ class Person:
                         )
                 elif (time >= 18) and (time <= 21):
                     if random.random() <= 0.5:
-                        visit = random.choice(list(self.city_map["PublicPlace"].keys()))
-                        self.pos = locate(self.city_map["PublicPlace"][visit])
+                        visit = random.choice(
+                            list(self.city_map["public_place"].keys())
+                        )
+                        self.pos = locate(self.city_map["public_place"][visit])
                         self.freeze(3)
                     else:
                         self.pos = self.home
