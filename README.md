@@ -27,17 +27,15 @@ city.spawn('School')
 ```python
 p0 = city.spawn_person(0)
 p0.about(details = True)
-```
 
-```json
-Name: Wendy
-Age: 53
-Occupation: FieldJob
-Work Location: [(92, 114), (50, 120), (75, 124), (79, 133), (7, 101), (31, 36), (158, 45)]
-Stays at: (112, 40)
-Immunity: 0.9
-Hygiene: 0.4216730019073207
-Infected: False
+>> Name: Wendy
+>> Age: 53
+>> Occupation: FieldJob
+>> Work Location: [(92, 114), (50, 120), (75, 124), (79, 133), (7, 101), (31, 36), (158, 45)]
+>> Stays at: (112, 40)
+>> Immunity: 0.9
+>> Hygiene: 0.4216730019073207
+>> Infected: False
 ```
 
 ### WIP:
