@@ -1,3 +1,7 @@
+/*
+ * __author__: bishwarup
+ * created: Friday, 27th March 2020 3:43:50 am
+ */
 document.addEventListener("DOMContentLoaded", function(event) {
   const canvas = document.getElementById("canvas");
 
