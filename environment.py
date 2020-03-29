@@ -3,6 +3,8 @@ __author__: bishwarup
 created: Tuesday, 24th March 2020 11:29:06 pm
 """
 
+from __future__ import print_function, division
+import os
 from abc import ABC, abstractmethod, abstractproperty
 import numpy as np
 import random
@@ -286,6 +288,13 @@ class City:
             self.stream["port"] = stream.get("port", 6379)
             self.stream["db"] = stream.get("db", "db0").lower()
 
+        log = kwargs.get("log", True)
+        if log is not None:
+            if isinstance(log, str):
+                self.logger = get_logger(log)
+            else:
+                self.logger = get_logger()
+
         if len(self.stream) > 0:
             if not self.stream["cache"] == "redis":
                 self.logger.error(
@@ -300,13 +309,6 @@ class City:
                 self.latency = 1
                 self.app = app
 
-        log = kwargs.get("log", True)
-        if log is not None:
-            if isinstance(log, str):
-                self.logger = get_logger(log)
-            else:
-                self.logger = get_logger()
-
         self._locs = defaultdict(lambda: defaultdict(tuple))
         self._occupancy = dict()
         self._gen_ids = []
@@ -314,7 +316,8 @@ class City:
         if self.streaming:
             self.process = Process(target=self.app.run)
             self.process.start()
-            webbrowser.open_new_tab("http://127.0.0.1:5000")
+            # $webbrowser.open_new_tab("http://127.0.0.1:5000")
+            os.system("google-chrome -incognito http://127.0.0.1:5000")
 
     @property
     def city_map(self):
@@ -411,7 +414,7 @@ class City:
         if self.streaming:
             box = (loc[0], loc[1], loc[2] - loc[0], loc[3] - loc[1])
             self._publish(
-                {"shape": box, "color": City.COLORS[building_type], "id": "struct"}
+                {"shape": box, "color": City.COLORS[building_type], "id": building_type}
             )
 
     def spawn_buildings(self):

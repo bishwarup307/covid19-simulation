@@ -17,41 +17,48 @@ document.addEventListener("DOMContentLoaded", function(event) {
 
     /** @type {CanvasRenderingContext2D} */
     const ctx = canvas.getContext("2d");
-    ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
-    shapes = JSON.parse(event.data);
-    for (var a in shapes) {
-      var obj = shapes[a];
-      if (obj.id === "struct") {
-        drawRectangle(obj.shape, obj.color);
+    function RenderContent() {
+      // ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+      shapes = JSON.parse(event.data);
+      var images = [];
+      var c = 0;
+
+      for (var a in shapes) {
+        var obj = shapes[a];
+        console.log(obj);
+        console.log(a);
+        rectShape = rectifyAR(obj.shape);
+        src = "../static/images/" + obj.id + ".png";
+        l = Math.max(rectShape[2], rectShape[3]);
+
+        loadAndDisplayImage(src, rectShape[0], rectShape[1], l, l);
       }
     }
-
-    function drawRectangle(shape, color) {
-      colors = getColor(color);
-      ctx.beginPath();
-      rectShape = rectifyAR(shape);
-      ctx.rect(rectShape[0], rectShape[1], rectShape[2], rectShape[3]);
-      ctx.fillStyle = colors;
-      ctx.fill();
+    requestAnimationFrame(RenderContent);
+    function loadAndDisplayImage(src, x, y, w, h) {
+      var image;
+      image = new Image();
+      image.src = src;
+      image.onload = function() {
+        ctx.drawImage(this, x, y, w, h);
+      };
     }
-
-    console.log(JSON.parse(event.data)[0].id);
 
     function rectifyAR(dims) {
       var wMult = window.innerWidth / 200;
       var hMult = window.innerHeight / 200;
       corrected_dims = [
-        dims[0] * wMult,
-        dims[1] * hMult,
-        dims[2] * wMult,
-        dims[3] * hMult
+        Math.floor(dims[0] * wMult),
+        Math.floor(dims[1] * hMult),
+        Math.floor(dims[2] * wMult),
+        Math.floor(dims[3] * hMult)
       ];
       return corrected_dims;
     }
 
-    function getColor(arr) {
-      return "rgb(" + arr[0] + "," + arr[1] + "," + arr[2] + ")";
-    }
+    // function getColor(arr) {
+    //   return "rgb(" + arr[0] + "," + arr[1] + "," + arr[2] + ")";
+    // }
   });
 });
 
