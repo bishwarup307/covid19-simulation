@@ -3,9 +3,11 @@
 This repository is intended at simulating the spread of the SARS-Cov-2 in a synthetic environment to test out different strategic interventions e.g. social distancing, through the use of reinforcement learning.
 
 ### Installation
+create a new virtual env (python >= 3.7) and activate it.
 ```
 git clone https://github.com/bishwarup307/covid19-simulation.git
 cd covid19-simulation
+pip install -r requirements.txt
 python setup.py build_ext --inplace
 ```
 
